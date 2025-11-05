@@ -170,11 +170,11 @@ cython_debug/
 # VSCode files
 .vscode
 
-# Logs
-logs/
+# # Logs
+# logs/
 
-# Models
-models/
+# # Models
+# models/
 
 # Data
 # data/
