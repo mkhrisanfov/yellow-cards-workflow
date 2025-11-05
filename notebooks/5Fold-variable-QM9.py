@@ -11,8 +11,8 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from torch_geometric.loader import DataLoader as GDataLoader
 from tqdm.auto import tqdm
 
-from project_filtering import BASE_DIR
-from project_filtering.datasets import (
+from yellow_cards_workflow import BASE_DIR
+from yellow_cards_workflow.datasets import (
     FCD_Dataset,
     FCFP_Dataset,
     GNNIMDataset,
@@ -20,12 +20,12 @@ from project_filtering.datasets import (
     prepare_gnn_dataset,
     CNN_Dataset,
 )
-from project_filtering.utils import (
+from yellow_cards_workflow.utils import (
     encode_smiles,
     generate_fingerprints,
     generate_rdkit_descriptors,
 )
-from project_filtering.models import CNN, GNN, FCD, FCFP
+from yellow_cards_workflow.models import CNN, GNN, FCD, FCFP
 
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
