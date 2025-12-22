@@ -422,8 +422,8 @@ def calc_groups(
                 abs_q = np.quantile(abs_g, (100 - t) / 100.0, axis=0)
                 rel_q = np.quantile(rel_g, (100 - t) / 100.0, axis=0)
 
-                mask_abs = abs_g > abs_q
-                mask_rel = rel_g > rel_q
+                mask_abs = abs_g >= abs_q
+                mask_rel = rel_g >= rel_q
                 s_a[g_idx] = mask_abs.sum(axis=1)
                 s_r[g_idx] = mask_rel.sum(axis=1)
                 s_b[g_idx] = (mask_abs & mask_rel).sum(axis=1)
