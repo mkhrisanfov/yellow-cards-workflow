@@ -8,7 +8,8 @@ from mordred import Autocorrelation
 from numpy.typing import NDArray
 from rdkit import Chem
 from tqdm.auto import tqdm
-
+from sklearn.metrics import auc
+from scipy.stats import median_abs_deviation
 from yellow_cards_workflow import (
     BASE_DIR,
     DEFAULT_VALUE_NAME,
@@ -261,6 +262,7 @@ def calc_basic_stats(
     results["p_median"] = model_data.median(axis=1)
     results["p_mean"] = model_data.mean(axis=1)
     results["p_std"] = model_data.std(axis=1)
+    results["mad"] = median_abs_deviation(model_data, axis=1)
 
     # calculate statistics for mean and median predictions
     results["d_mean_a"] = (results["p_mean"] - ref_data).abs()
@@ -381,7 +383,7 @@ def calc_groups(
         - threshold_%: Applied threshold value
         - data_offset: Applied data offset value
     """
-    p_median = dataframe.loc[:, model_names].median(axis=1)
+    # p_median = dataframe.loc[:, model_names].median(axis=1)
 
     # normalized thresholds and data_offsets
     if isinstance(thresholds, (int, float)):
@@ -398,6 +400,8 @@ def calc_groups(
 
     p_median = dataframe.loc[:, model_names].median(axis=1).to_numpy()
     y_true = dataframe.loc[:, value_name].to_numpy()
+    p_std = dataframe.loc[:, model_names].std(axis=1).to_numpy()
+    d_median = np.abs(dataframe.loc[:, value_name].to_numpy() - p_median)
 
     # convert model data to a 2D numpy array for fast operations
     model_data = dataframe.loc[:, model_names].to_numpy()
@@ -407,32 +411,41 @@ def calc_groups(
     groups = dataframe.groupby(level=idx_vars).indices
     results = []
     delta_abs = np.abs(model_data - y_true[:, None])
+    delta_std = d_median / (p_std + TOL)
     for t in thresholds:
         for d in data_offsets:
-            delta_rel = delta_abs / (p_median[:, None] + d)
+            delta_rel = delta_abs / (p_median[:, None] + d + TOL)
 
             s_a = np.zeros(len(y_true), dtype=np.int8)
             s_r = np.zeros(len(y_true), dtype=np.int8)
             s_b = np.zeros(len(y_true), dtype=np.int8)
+            s_c = np.zeros(len(y_true), dtype=np.int8)
+            s_std = np.zeros(len(y_true), dtype=np.int8)
 
             # Compute quantiles per group efficiently
             for g_idx in groups.values():
                 abs_g = delta_abs[g_idx, :]
                 rel_g = delta_rel[g_idx, :]
+                std_g = delta_std[g_idx]
                 abs_q = np.quantile(abs_g, (100 - t) / 100.0, axis=0)
                 rel_q = np.quantile(rel_g, (100 - t) / 100.0, axis=0)
+                std_q = np.quantile(std_g, (100 - t) / 100.0, axis=0)
 
                 mask_abs = abs_g >= abs_q
                 mask_rel = rel_g >= rel_q
                 s_a[g_idx] = mask_abs.sum(axis=1)
                 s_r[g_idx] = mask_rel.sum(axis=1)
                 s_b[g_idx] = (mask_abs & mask_rel).sum(axis=1)
+                s_std[g_idx] = std_g >= std_q
+                s_c[g_idx] = s_std[g_idx] & (s_b[g_idx] == n_models)
 
             result = pd.DataFrame(
                 {
                     f"s_{n_models}_a": s_a,
                     f"s_{n_models}_r": s_r,
                     f"s_{n_models}_b": s_b,
+                    f"s_{n_models}_c": s_c,
+                    "s_std": s_std,
                     f"s_{n_models}_n": 0,  # placeholder for consistency
                     "threshold_%": t,
                     "data_offset": d,
@@ -441,7 +454,7 @@ def calc_groups(
             )
             results.append(result)
     final_df = pd.concat(results)
-    final_df.set_index(["threshold_%", "data_offset"], append=True, inplace=True)
+    final_df = final_df.set_index(["threshold_%", "data_offset"], append=True)
     return final_df
 
 
@@ -512,7 +525,7 @@ def calc_classification_metrics(
     thresholds: float | List[float] | NDArray[np.float64] = DEFAULT_THRESHOLD,
     data_offsets: float | List[float] | NDArray[np.float64] = DEFAULT_DATA_OFFSET,
     value_name: str = DEFAULT_VALUE_NAME,
-    group_stat: Literal["abs", "rel", "both", "norm"] = "abs",
+    group_stat: Literal["abs", "rel", "both", "norm", "std", "std_c"] = "abs",
     last_group_only: bool = False,
     recursive: bool = False,
     **kwargs,
@@ -564,6 +577,8 @@ def calc_classification_metrics(
         "rel": f"s_{len(model_names)}_r",
         "both": f"s_{len(model_names)}_b",
         "norm": f"s_{len(model_names)}_n",
+        "std_c": f"s_{len(model_names)}_c",
+        "std": "s_std",
     }
     gstat = gstat_variants.get(group_stat, f"s_{len(model_names)}_a")
     modified = get_modified_entries(
@@ -575,38 +590,49 @@ def calc_classification_metrics(
         thresholds = [thresholds]
 
     # Precompute group stats with the optimized function
-    group_stats = calc_groups(
-        dataframe=dataframe,
-        model_names=model_names,
-        thresholds=thresholds,
-        data_offsets=data_offsets,
-        value_name=value_name,
-    )
-    group_stats.set_index(gstat, append=True, inplace=True)
+    # group_stats = calc_groups(
+    #     dataframe=dataframe,
+    #     model_names=model_names,
+    #     thresholds=thresholds,
+    #     data_offsets=data_offsets,
+    #     value_name=value_name,
+    # )
+    # group_stats.set_index(gstat, append=True, inplace=True)
 
     if recursive:
         raise NotImplementedError("Recursive logic not yet implemented")
 
-    base_df = (
-        group_stats.xs(thresholds[0], level="threshold_%").join(modified).reset_index()
-    )
+    # TODO: not needed, really
+    # base_df = (
+    #     group_stats.xs(thresholds[0], level="threshold_%").join(modified).reset_index()
+    # )
 
     idx_vars = ["var_add", "modified_%", "data_offset"]
-    ds_idx_vars = [x for x in idx_vars if x in base_df.columns]
+    ds_idx_vars = [x for x in idx_vars if x in modified.index.names]
+
+    # TODO: calculate from modified only
 
     ds_counts = (
-        base_df.groupby(ds_idx_vars)["modified"]
+        modified.groupby(ds_idx_vars)["modified"]
         .value_counts(dropna=False)
         .unstack(fill_value=0)
         .rename(columns={True: "ds_pos", False: "neg_ds"})
     )
-
     ds_counts["ds_len"] = ds_counts["ds_pos"] + ds_counts["neg_ds"]
 
     results = {}
-    for t in thresholds:
-        gs = group_stats.xs(t, level="threshold_%").join(modified)
-        df_tmp = gs.reset_index()
+    for t in tqdm(thresholds, leave=False):
+        df_tmp = (
+            calc_groups(
+                dataframe=dataframe,
+                model_names=model_names,
+                thresholds=t,
+                data_offsets=data_offsets,
+                value_name=value_name,
+            )
+            .join(modified)
+            .reset_index()
+        )
         group_keys = [x for x in idx_vars + [gstat] if x in df_tmp.columns]
 
         # Compute positive/negative counts per group
@@ -639,16 +665,27 @@ def calc_classification_metrics(
         ]
 
         results[t] = merged[metric_cols]
-    full_idx = ["threshold_%"] + idx_vars + [gstat]
-    full_idx = [x for x in full_idx if x in group_stats.index.names]
-    full_index = pd.MultiIndex.from_product(
-        [group_stats.index.get_level_values(name).unique() for name in full_idx]
+
+    full_idx = ["threshold_%"] + ds_idx_vars + ["data_offset", "group_#"]
+    # full_idx = [x for x in full_idx if x in group_stats.index.names]
+    full_idx_vals = [pd.Series(thresholds, name="threshold_%")]
+    full_idx_vals.extend(
+        [modified.index.get_level_values(name).unique() for name in ds_idx_vars]
     )
+    full_idx_vals.append(pd.Series(data=data_offsets, name="data_offset"))
+    if "std" not in group_stat:
+        full_idx_vals.append(
+            pd.Series(data=np.arange(0, len(model_names) + 1), name="group_#")
+        )
+    else:
+        full_idx_vals.append(pd.Series(data=[True, False], name="group_#"))
+    full_index = pd.MultiIndex.from_product(full_idx_vals)
+
     results = (
         pd.concat(results, names=["threshold_%"])
+        .rename_axis(index={gstat: "group_#"})
         .reorder_levels(full_idx)
         .reindex(index=full_index, fill_value=0)
-        .rename_axis(index={gstat: "group_#"})
     )
     return results
 
@@ -702,12 +739,45 @@ def calc_multi_model_stats(
     return models_stats
 
 
+def calc_classification_aucs_multi_model(
+    dataframe: pd.DataFrame,
+    ref_dataframe: pd.DataFrame,
+    model_names: List[str],
+    data_offset: float = DEFAULT_DATA_OFFSET,
+    thresholds: float | List[float] | NDArray[np.float64] = DEFAULT_THRESHOLDS,
+    num_models: int | List[int] | NDArray[np.int64] = np.arange(1, 11, 1),
+):
+    if isinstance(num_models, int):
+        num_models = [num_models]
+
+    plot_data = []
+    for i in tqdm(num_models, position=0):
+        combos = list(combinations(model_names, i))
+        for combo in tqdm(combos, position=1, leave=False, total=len(combos)):
+            res = calc_classification_metrics(
+                dataframe=dataframe,
+                ref_dataframe=ref_dataframe,
+                model_names=combo,
+                thresholds=thresholds,
+                data_offsets=data_offset,
+                group_stat="abs",
+            )
+            auc_temp = auc(
+                res.xs(len(combo), level="group_#")["recall"],
+                res.xs(len(combo), level="group_#")["precision"],
+            )
+            plot_data.append({"combo": combo, "n_models": i, "auc": auc_temp})
+    plot_data = pd.DataFrame(plot_data)
+    return plot_data
+
+
 def calc_classification_metrics_multi_model(
     dataframe: pd.DataFrame,
     ref_dataframe: pd.DataFrame,
     model_names: List[str],
     data_offset: float = DEFAULT_DATA_OFFSET,
     thresholds: float | List[float] | NDArray[np.float64] = DEFAULT_THRESHOLDS,
+    num_models: int | List[int] | NDArray[np.int64] = np.arange(1, 11, 1),
     criterium: str = "max",
 ) -> pd.DataFrame:
     """
@@ -736,6 +806,9 @@ def calc_classification_metrics_multi_model(
     pd.DataFrame
         Concatenated plot data with classification statistics for the combinations of the models
     """
+    if isinstance(num_models, int):
+        num_models = [num_models]
+
     models_stats = calc_multi_model_stats(
         dataframe=dataframe,
         ref_dataframe=ref_dataframe,
@@ -743,7 +816,8 @@ def calc_classification_metrics_multi_model(
         data_offset=data_offset,
     )
     models_best = {}
-    for i in range(1, len(model_names) + 1):
+
+    for i in num_models:  # range(1, len(model_names) + 1):
         models_slice = models_stats.xs(i, level="n_models")
         if criterium == "max":
             models_best[i] = models_slice.loc[[models_slice["f1"].idxmax()]]

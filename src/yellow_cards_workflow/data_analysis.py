@@ -25,10 +25,10 @@ from yellow_cards_workflow.calculations import (
     calc_diffs_corrs,
 )
 
-colorblind = sns.color_palette("colorblind")
+colorblind = sns.color_palette("colorblind", n_colors=10)
 new_order = [colorblind[i] for i in [0, 3, 7, 2, 5, 4, 6, 8, 1, 9]]
 sns.palettes.SEABORN_PALETTES["colorblind_reordered"] = new_order
-PALETTE = "colorblind_reordered"
+PALETTE = new_order  # sns.color_palette("colorblind_reordered")
 HATCH_COEFF = 5
 HATCHES = [
     "/" * HATCH_COEFF,
@@ -54,6 +54,7 @@ def plot_distribution_deltas(
     height: float = 3,
     aspect: float = 1,
     margin_titles: bool = False,
+    bins: int = 101,
     **kwargs,
 ) -> sns.FacetGrid:
     """
@@ -101,6 +102,7 @@ def plot_distribution_deltas(
         col=col if col in plot_df.columns else None,
         row=row if row in plot_df.columns else None,
         kind="hist",
+        bins=bins,
         height=height,
         aspect=aspect,
         edgecolor=None,
@@ -1133,9 +1135,9 @@ def plot_stats_group(
         plot_stats = plot_stats.join(ground_truth)
     plot_stats = plot_stats.reset_index()
     plot_stats = plot_stats.loc[np.isin(plot_stats[group], groups), :]
-    plot_stats["group"] = plot_stats[group].round(0).astype(str)
+    plot_stats["group"] = plot_stats[group].round(0).astype("str")
     plot_stats.sort_values("group", inplace=True)
-    id_vars = ["var_add", "modified_%", "#", "group", "threshold_%"]
+    id_vars = ["var_add", "modified_%", "threshold_%", "group", "#"]
     if split_modified == "last":
         plot_stats.loc[plot_stats[group] == len(model_names), "group"] = np.where(
             plot_stats.loc[plot_stats[group] == len(model_names), "modified"],
@@ -1260,14 +1262,18 @@ def plot_stats_group(
                 data=data,
                 x=x_var,
                 y="value",
-                hue="agg" if len(stats) == 1 else "stat",
+                hue=hue if hue in plot_stats.columns else "agg",
                 col=col if col in plot_stats.columns else None,
                 row=row if row in plot_stats.columns else None,
                 kind="line",
                 markers=True,
                 style="modified" if split_modified else "stat",
                 height=height,
-                aspect=1.2 if not annot_sizes or col or row else 1.75,
+                aspect=(
+                    1.2
+                    if not annot_sizes or aspect or col or row
+                    else aspect if aspect else 1.75
+                ),
                 palette=PALETTE,
                 facet_kws=facet_kws,
             )
@@ -1282,7 +1288,7 @@ def plot_stats_group(
                 data=data,
                 x=x_var,
                 y="value",
-                hue="stat",
+                hue=hue if hue in plot_stats.columns else "stat",
                 col=col if col in plot_stats.columns else None,
                 row=row if row in plot_stats.columns else None,
                 kind="line",
@@ -1298,7 +1304,8 @@ def plot_stats_group(
             id_vars=id_vars,
             var_name="stat",
             value_vars=stats,
-        ).sort_values("group")
+        ).sort_values(id_vars)
+        # return data
         fg = sns.displot(
             data=data,
             x="value",
@@ -1465,7 +1472,7 @@ def plot_stats_classification(
     style: Optional[STATS_CLASS_VARS] = None,
     col: STATS_CLASS_VARS = "modified_%",
     row: STATS_CLASS_VARS = "var_add",
-    group_stat: Literal["abs", "rel", "both", "norm"] = "abs",
+    group_stat: Literal["abs", "rel", "both", "norm", "std", "std_c"] = "abs",
     thresholds: float | List[float] | NDArray[np.float64] = DEFAULT_THRESHOLDS,
     data_offsets: float | List[float] | NDArray[np.float64] = DEFAULT_DATA_OFFSET,
     value_name: str = "values",
@@ -1556,9 +1563,9 @@ def plot_stats_classification(
         style = "recursive"
         plot_df = pd.concat([plot_df, recursive_df])
     plot_df = plot_df[plot_df["group_#"] == group_no].drop(columns="group_#")
-    id_vars = ["var_add", "modified_%", "recursive"]
-    id_vars = [x for x in id_vars if x in plot_df.columns]
     if agg is not None:
+        id_vars = ["var_add", "modified_%", "recursive"]
+        id_vars = [x for x in id_vars if x in plot_df.columns]
         plot_df = (
             plot_df.groupby(id_vars)
             .agg(agg)
