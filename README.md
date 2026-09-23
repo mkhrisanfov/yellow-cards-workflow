@@ -2,13 +2,13 @@
 
 _by Mikhail Khrisanfov, Dmitriy Matyushin, Anastasia Sholokhova, Andrey Samokhin_
 
+The IPython Notebook file for the **article** with all the examples, figures, and code needed to reproduce the findings is available in [`notebooks/data-analysis-ncs.ipynb`](./notebooks/data-analysis-ncs.ipynb).
+
 Full text of the preprint is available at [ChemRxiv](https://doi.org/10.26434/chemrxiv-2025-6bh22).
 
 At the moment the repository contains code for model training, dataset generation, data cleaning, data analysis and plotting figures for the manuscript.
 
 The IPython Notebook file for the **preprint** with all the examples, figures, and code needed to reproduce the findings is available in [`notebooks/data-analysis-article.ipynb`](./notebooks/data-analysis-article.ipynb).
-
-The IPython Notebook file for the **article** with all the examples, figures, and code needed to reproduce the findings is available in [`notebooks/data-analysis-article-nmi.ipynb`](./notebooks/data-analysis-article-nmi.ipynb).
 
 ### Abstract
 
